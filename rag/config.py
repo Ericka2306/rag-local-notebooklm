@@ -21,6 +21,16 @@ CHUNK_SIZE = 1000
 #   coupée à la frontière de deux chunks devienne introuvable.
 CHUNK_OVERLAP = 150
 
+# --- Persistance -------------------------------------------------------------
+
+# Dossier où ChromaDB persiste l'index sur disque : les documents indexés
+# survivent aux redémarrages de l'application et aux rafraîchissements de
+# page. Chemin absolu ancré à la racine du projet (et non au dossier
+# courant, qui dépend d'où l'on lance la commande).
+from pathlib import Path
+
+CHROMA_DIR = str(Path(__file__).resolve().parent.parent / "chroma_db")
+
 # --- Recherche ---------------------------------------------------------------
 
 # Nombre de chunks récupérés par requête (le "top-k" de la similarité).
