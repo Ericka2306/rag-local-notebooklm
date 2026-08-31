@@ -1,0 +1,12 @@
+# Thème de l'application — palette inspirée de NotebookLM (Google) :
+# fond clair épuré, accent bleu, gris doux pour les surfaces secondaires.
+[theme]
+base = "light"
+primaryColor = "#1A73E8"            # bleu Google : boutons, toggle, liens
+backgroundColor = "#FFFFFF"         # zone principale
+secondaryBackgroundColor = "#F1F3F4" # barre latérale, champs de saisie
+textColor = "#202124"               # gris presque noir (texte)
+font = "sans serif"
+
+[server]
+headless = true
