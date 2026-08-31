@@ -1,0 +1,112 @@
+/* ============================================================
+   NotebookLM Local — feuille de style
+   Polices : Inter (texte) + Material Symbols Rounded (icônes)
+   Palette : blanc / gris Google #F1F3F4 / bleu #1A73E8
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..600,0..1,-50..200&display=swap');
+
+html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
+
+/* IMPORTANT : la règle ci-dessus écrase la police de TOUS les éléments
+   Streamlit, y compris les icônes Material natives (qui sont des ligatures :
+   sans leur police, on voit "bolt" en texte). On la restaure ici. */
+[data-testid="stIconMaterial"], [class*="material-symbols"], .msr {
+    font-family: 'Material Symbols Rounded' !important;
+}
+
+/* Icône Material utilisable dans notre HTML : <span class="msr">nom</span> */
+.msr {
+    font-weight: normal; font-style: normal; line-height: 1;
+    display: inline-block; vertical-align: -3px; font-size: 17px;
+}
+
+/* En-tête Streamlit transparent (on garde le bouton de la sidebar) */
+header[data-testid="stHeader"] { background: transparent; }
+#MainMenu, footer { visibility: hidden; }
+
+/* ---------- En-tête de l'application ---------- */
+.app-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 0.1rem;
+}
+.app-title {
+    font-size: 1.7rem; font-weight: 700; color: #202124;
+    display: flex; align-items: center; gap: 10px;
+}
+.app-title .msr { font-size: 30px; color: #1A73E8; vertical-align: -6px; }
+.app-sub { color: #5F6368; font-size: 0.88rem; margin-bottom: 1.2rem; }
+
+/* Pastille du mode actif */
+.pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 14px; border-radius: 999px;
+    font-size: 0.8rem; font-weight: 600; white-space: nowrap;
+}
+.pill .msr { font-size: 15px; }
+.pill-rag    { background: #E8F0FE; color: #1A73E8; }
+.pill-search { background: #E6F4EA; color: #188038; }
+
+/* ---------- Sidebar ---------- */
+.side-label {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #5F6368; margin: 0.4rem 0 0.5rem 0;
+}
+.file-card {
+    display: flex; align-items: center; gap: 8px;
+    background: #FFFFFF; border: 1px solid #E8EAED; border-radius: 10px;
+    padding: 8px 12px; margin-bottom: 6px; font-size: 0.84rem; color: #202124;
+}
+.file-card .file-size { color: #5F6368; margin-left: auto; font-size: 0.78rem; }
+.stats-row { display: flex; gap: 8px; margin-top: 10px; }
+.stat-chip {
+    flex: 1; display: flex; align-items: center; gap: 6px; justify-content: center;
+    background: #FFFFFF; border: 1px solid #E8EAED; border-radius: 10px;
+    padding: 7px 10px; font-size: 0.8rem; font-weight: 600; color: #202124;
+}
+.stat-chip .msr { color: #1A73E8; }
+
+/* ---------- Chat ---------- */
+[data-testid="stChatMessage"] {
+    background: #FFFFFF;
+    border: 1px solid #E8EAED;
+    border-radius: 16px;
+    padding: 0.9rem 1.1rem;
+    margin-bottom: 0.4rem;
+    box-shadow: 0 1px 2px rgba(60, 64, 67, 0.06);
+}
+/* Messages de l'utilisateur légèrement teintés (si le navigateur sait :has) */
+[data-testid="stChatMessage"]:has([data-testid*="User"]),
+[data-testid="stChatMessage"]:has([data-testid*="user"]) {
+    background: #F8F9FA;
+}
+
+/* Carte d'un extrait (chunk) retourné par la recherche */
+.chunk-card {
+    background: #F8F9FA; border-left: 3px solid #1A73E8;
+    border-radius: 8px; padding: 10px 14px; margin: 8px 0;
+    font-size: 0.9rem; color: #202124;
+}
+.chunk-source {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: #1A73E8; font-weight: 600; font-size: 0.78rem; margin-bottom: 4px;
+}
+
+/* ---------- Écran d'accueil ---------- */
+.hero { text-align: center; padding: 2.2rem 1rem 0.5rem 1rem; }
+.hero-badge {
+    width: 84px; height: 84px; margin: 0 auto 1rem auto; border-radius: 50%;
+    background: #E8F0FE; display: flex; align-items: center; justify-content: center;
+}
+.hero-badge .msr { font-size: 42px; color: #1A73E8; }
+.hero h2 { color: #202124; margin: 0 0 0.3rem 0; }
+.hero > p { color: #5F6368; margin-bottom: 1.6rem; }
+.steps { display: flex; gap: 10px; }
+.step {
+    flex: 1; background: #FFFFFF; border: 1px solid #E8EAED;
+    border-radius: 14px; padding: 14px 12px; text-align: center;
+}
+.step .msr { font-size: 26px; color: #1A73E8; }
+.step b { display: block; margin: 6px 0 2px 0; font-size: 0.86rem; color: #202124; }
+.step p { font-size: 0.78rem; color: #5F6368; margin: 0; }

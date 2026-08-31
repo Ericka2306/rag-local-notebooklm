@@ -1,21 +1,21 @@
 """
 TP — Système RAG Local (Clone de NotebookLM)
 =============================================
-ÉTAPE 1 : interface graphique Streamlit (design inspiré de NotebookLM :
-sidebar "Sources" à gauche, chat au centre, sources citées sous les réponses).
-Icônes : Material Symbols (Google) — celles du vrai NotebookLM.
-
-⚠️ Le backend (Étapes 2, 3, 4) n'est PAS encore implémenté : les trois
-fonctions de la section 🚧 renvoient des données factices pour que
-l'interface soit testable immédiatement.
+Point d'entrée : l'INTERFACE Streamlit (Étape 1), et rien d'autre.
+Le pipeline RAG vit dans le package rag/ (un module par étape du TP) ;
+le style vit dans styles.css.
 
 Lancement :  streamlit run app.py
 """
 
 import html
-import time
+from pathlib import Path
 
 import streamlit as st
+
+from rag.ingestion import load_documents, split_documents, build_vectorstore
+from rag.retrieval import semantic_search
+from rag.generation import rag_answer
 
 # =============================================================================
 # CONFIGURATION DE LA PAGE (doit être le tout premier appel Streamlit)
@@ -27,190 +27,22 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# =============================================================================
-# STYLE — polices Inter + Material Symbols, cartes arrondies façon NotebookLM
-# =============================================================================
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..600,0..1,-50..200&display=swap');
-
-    html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
-
-    /* IMPORTANT : la règle ci-dessus écrase la police de TOUS les éléments
-       Streamlit, y compris les icônes Material natives (qui sont des
-       ligatures : sans leur police, on voit "bolt" en texte). On la
-       restaure ici, en priorité absolue. */
-    [data-testid="stIconMaterial"], [class*="material-symbols"], .msr {
-        font-family: 'Material Symbols Rounded' !important;
-    }
-
-    /* Icône Material utilisable dans notre HTML : <span class="msr">nom</span> */
-    .msr {
-        font-weight: normal; font-style: normal; line-height: 1;
-        display: inline-block; vertical-align: -3px; font-size: 17px;
-    }
-
-    /* En-tête Streamlit transparent (on garde le bouton de la sidebar) */
-    header[data-testid="stHeader"] { background: transparent; }
-    #MainMenu, footer { visibility: hidden; }
-
-    /* ---------- En-tête de l'application ---------- */
-    .app-header {
-        display: flex; align-items: center; justify-content: space-between;
-        margin-bottom: 0.1rem;
-    }
-    .app-title {
-        font-size: 1.7rem; font-weight: 700; color: #202124;
-        display: flex; align-items: center; gap: 10px;
-    }
-    .app-title .msr { font-size: 30px; color: #1A73E8; vertical-align: -6px; }
-    .app-sub { color: #5F6368; font-size: 0.88rem; margin-bottom: 1.2rem; }
-
-    /* Pastille du mode actif */
-    .pill {
-        display: inline-flex; align-items: center; gap: 6px;
-        padding: 5px 14px; border-radius: 999px;
-        font-size: 0.8rem; font-weight: 600; white-space: nowrap;
-    }
-    .pill .msr { font-size: 15px; }
-    .pill-rag    { background: #E8F0FE; color: #1A73E8; }
-    .pill-search { background: #E6F4EA; color: #188038; }
-
-    /* ---------- Sidebar ---------- */
-    .side-label {
-        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
-        text-transform: uppercase; color: #5F6368; margin: 0.4rem 0 0.5rem 0;
-    }
-    .file-card {
-        display: flex; align-items: center; gap: 8px;
-        background: #FFFFFF; border: 1px solid #E8EAED; border-radius: 10px;
-        padding: 8px 12px; margin-bottom: 6px; font-size: 0.84rem; color: #202124;
-    }
-    .file-card .file-size { color: #5F6368; margin-left: auto; font-size: 0.78rem; }
-    .stats-row { display: flex; gap: 8px; margin-top: 10px; }
-    .stat-chip {
-        flex: 1; display: flex; align-items: center; gap: 6px; justify-content: center;
-        background: #FFFFFF; border: 1px solid #E8EAED; border-radius: 10px;
-        padding: 7px 10px; font-size: 0.8rem; font-weight: 600; color: #202124;
-    }
-    .stat-chip .msr { color: #1A73E8; }
-
-    /* ---------- Chat ---------- */
-    [data-testid="stChatMessage"] {
-        background: #FFFFFF;
-        border: 1px solid #E8EAED;
-        border-radius: 16px;
-        padding: 0.9rem 1.1rem;
-        margin-bottom: 0.4rem;
-        box-shadow: 0 1px 2px rgba(60, 64, 67, 0.06);
-    }
-    /* Messages de l'utilisateur légèrement teintés (si le navigateur sait :has) */
-    [data-testid="stChatMessage"]:has([data-testid*="User"]),
-    [data-testid="stChatMessage"]:has([data-testid*="user"]) {
-        background: #F8F9FA;
-    }
-
-    /* Carte d'un extrait (chunk) retourné par la recherche */
-    .chunk-card {
-        background: #F8F9FA; border-left: 3px solid #1A73E8;
-        border-radius: 8px; padding: 10px 14px; margin: 8px 0;
-        font-size: 0.9rem; color: #202124;
-    }
-    .chunk-source {
-        display: inline-flex; align-items: center; gap: 5px;
-        color: #1A73E8; font-weight: 600; font-size: 0.78rem; margin-bottom: 4px;
-    }
-
-    /* ---------- Écran d'accueil ---------- */
-    .hero { text-align: center; padding: 2.2rem 1rem 0.5rem 1rem; }
-    .hero-badge {
-        width: 84px; height: 84px; margin: 0 auto 1rem auto; border-radius: 50%;
-        background: #E8F0FE; display: flex; align-items: center; justify-content: center;
-    }
-    .hero-badge .msr { font-size: 42px; color: #1A73E8; }
-    .hero h2 { color: #202124; margin: 0 0 0.3rem 0; }
-    .hero > p { color: #5F6368; margin-bottom: 1.6rem; }
-    .steps { display: flex; gap: 10px; }
-    .step {
-        flex: 1; background: #FFFFFF; border: 1px solid #E8EAED;
-        border-radius: 14px; padding: 14px 12px; text-align: center;
-    }
-    .step .msr { font-size: 26px; color: #1A73E8; }
-    .step b { display: block; margin: 6px 0 2px 0; font-size: 0.86rem; color: #202124; }
-    .step p { font-size: 0.78rem; color: #5F6368; margin: 0; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# =============================================================================
-# 🚧🚧🚧 BACKEND — À TOI DE JOUER (Étapes 2, 3 et 4 du sujet) 🚧🚧🚧
-# =============================================================================
-# Les trois fonctions ci-dessous sont des MAQUETTES : elles renvoient des
-# données factices pour que l'interface soit testable dès maintenant.
-# Ton travail : les remplacer par le vrai pipeline RAG (LangChain, ChromaDB,
-# sentence-transformers, Ollama). L'interface, elle, n'aura pas à changer.
-# =============================================================================
-
-def index_documents(uploaded_files):
-    """🚧 ÉTAPE 2 — Pipeline d'ingestion.
-
-    À implémenter : extraction du texte (PyMuPDFLoader / TextLoader),
-    découpage en chunks (RecursiveCharacterTextSplitter), vectorisation
-    (HuggingFaceEmbeddings) et stockage dans ChromaDB, en conservant le nom
-    du fichier dans les métadonnées. La base doit être gardée dans
-    st.session_state pour survivre aux ré-exécutions du script.
-
-    Doit retourner : le nombre de chunks indexés (int).
-    """
-    time.sleep(1.5)                      # simule le travail d'indexation
-    return 42                            # ← nombre de chunks factice
-
-
-def semantic_search(query):
-    """🚧 ÉTAPE 3 — Recherche sémantique pure (AUCUN appel au LLM).
-
-    À implémenter : interroger la base vectorielle (similarity_search) et
-    retourner les k chunks les plus proches de la question.
-
-    Doit retourner : une liste de dicts {"content": str, "source": str}.
-    """
-    return [                              # ← extraits factices
-        {"content": f"Extrait factice n°{i} en lien avec « {query} ». "
-                    "Remplace-moi par un vrai similarity_search !",
-         "source": f"document_{i}.pdf"}
-        for i in (1, 2, 3)
-    ]
-
-
-def rag_answer(query, chunks):
-    """🚧 ÉTAPE 4 — Génération RAG (prompt strict + LLM local via Ollama).
-
-    À implémenter : construire un PromptTemplate injectant {context} (les
-    chunks) et {question}, puis appeler le modèle Ollama en streaming.
-
-    Doit retourner : un GÉNÉRATEUR de morceaux de texte (pour l'affichage
-    progressif avec st.write_stream).
-    """
-    fake = (f"Réponse factice à « {query} » générée à partir de "
-            f"{len(chunks)} extraits. Branche-moi sur Ollama !")
-    for word in fake.split(" "):          # simule le streaming token par token
-        yield word + " "
-        time.sleep(0.05)
-
+# Feuille de style externe (voir styles.css).
+st.markdown(f"<style>{Path('styles.css').read_text()}</style>",
+            unsafe_allow_html=True)
 
 # =============================================================================
 # ÉTAT DE SESSION
 # =============================================================================
 # Streamlit ré-exécute tout le script à chaque interaction : ce qui doit
-# survivre (historique, état d'indexation) vit dans st.session_state.
+# survivre (historique, index) vit dans st.session_state — géré ICI, côté
+# interface ; le backend rag/ n'y touche jamais.
 if "messages" not in st.session_state:
     st.session_state.messages = []        # [{role, content, chunks?}, …]
-if "indexed" not in st.session_state:
-    st.session_state.indexed = False      # une indexation a-t-elle eu lieu ?
+if "vectorstore" not in st.session_state:
+    st.session_state.vectorstore = None   # base vectorielle (Étape 2.3)
+if "raw_docs" not in st.session_state:
+    st.session_state.raw_docs = []        # Documents extraits (aperçu 2.1)
 if "n_chunks" not in st.session_state:
     st.session_state.n_chunks = 0
 if "source_names" not in st.session_state:
@@ -267,19 +99,23 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
+    # Bouton d'indexation : enchaîne les trois sous-étapes du pipeline.
     if st.button("Indexer les documents", icon=":material/bolt:",
                  type="primary", use_container_width=True,
                  disabled=not uploaded_files):
         with st.spinner("Extraction → chunking → embeddings…"):
-            st.session_state.n_chunks = index_documents(uploaded_files)
-        st.session_state.indexed = True
+            docs = load_documents(uploaded_files)                  # 2.1 ✅
+            chunks = split_documents(docs)                         # 2.2 🚧
+            st.session_state.vectorstore = build_vectorstore(chunks)  # 2.3 🚧
+        st.session_state.raw_docs = docs
+        st.session_state.n_chunks = len(chunks)
         st.session_state.source_names = [f.name for f in uploaded_files]
         st.toast(f"{len(uploaded_files)} fichier(s) → "
                  f"{st.session_state.n_chunks} chunks indexés",
                  icon=":material/check_circle:")
 
     # Petit tableau de bord de l'index.
-    if st.session_state.indexed:
+    if st.session_state.source_names:
         st.markdown(
             f"""<div class="stats-row">
                 <div class="stat-chip"><span class="msr">folder</span>
@@ -289,6 +125,21 @@ with st.sidebar:
             </div>""",
             unsafe_allow_html=True,
         )
+
+    # 🔬 Aperçu de débogage (Étape 2.1) : permet de VÉRIFIER ce que
+    # l'extraction a produit avant de construire la suite du pipeline.
+    if st.session_state.raw_docs:
+        with st.expander("Aperçu de l'extraction", icon=":material/science:"):
+            docs = st.session_state.raw_docs
+            st.caption(f"{len(docs)} segment(s) extrait(s) — 1 par page de PDF")
+            for doc in docs[:3]:
+                page = doc.metadata.get("page")
+                page_info = f" · page {page + 1}" if page is not None else ""
+                st.markdown(f"**{doc.metadata['source']}**{page_info} "
+                            f"· {len(doc.page_content)} caractères")
+                st.text(doc.page_content[:250] + "…")
+            if len(docs) > 3:
+                st.caption(f"… et {len(docs) - 3} autre(s) segment(s)")
 
     st.divider()
     st.markdown('<div class="side-label">Assistant</div>', unsafe_allow_html=True)
@@ -326,7 +177,7 @@ st.markdown(
 )
 
 # Écran d'accueil tant que rien n'est indexé et que le chat est vide.
-if not st.session_state.indexed and not st.session_state.messages:
+if not st.session_state.source_names and not st.session_state.messages:
     st.markdown(
         """<div class="hero">
              <div class="hero-badge"><span class="msr">auto_stories</span></div>
@@ -355,10 +206,11 @@ for msg in st.session_state.messages:
 
 # Saisie utilisateur — désactivée tant qu'aucun document n'est indexé
 # (même comportement que NotebookLM : pas de source, pas de question).
+indexed = bool(st.session_state.source_names)
 query = st.chat_input(
-    "Posez une question sur vos documents…" if st.session_state.indexed
+    "Posez une question sur vos documents…" if indexed
     else "Indexez d'abord des documents dans la barre latérale",
-    disabled=not st.session_state.indexed,
+    disabled=not indexed,
 )
 
 if query:
@@ -371,7 +223,7 @@ if query:
     with st.chat_message("assistant", avatar=AVATARS["assistant"]):
         if not llm_enabled:
             # ---- Mode Recherche Sémantique (Étape 3) : extraits bruts ----
-            chunks = semantic_search(query)
+            chunks = semantic_search(st.session_state.vectorstore, query)
             st.markdown("**Extraits les plus proches de votre question :**")
             render_chunks(chunks)
             st.session_state.messages.append({
@@ -382,7 +234,7 @@ if query:
             })
         else:
             # ---- Mode RAG complet (Étape 4) : réponse + sources ----------
-            chunks = semantic_search(query)                  # même retrieval
+            chunks = semantic_search(st.session_state.vectorstore, query)
             answer = st.write_stream(rag_answer(query, chunks))
             with st.expander("Sources utilisées", icon=":material/format_quote:"):
                 render_chunks(chunks)
