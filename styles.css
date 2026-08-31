@@ -59,6 +59,15 @@ header[data-testid="stHeader"] { background: transparent; }
     padding: 8px 12px; margin-bottom: 6px; font-size: 0.84rem; color: #202124;
 }
 .file-card .file-size { color: #5F6368; margin-left: auto; font-size: 0.78rem; }
+.file-card .file-name {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-card .file-badge {
+    margin-left: auto; background: #E8F0FE; color: #1A73E8;
+    border-radius: 999px; padding: 2px 9px; font-size: 0.72rem;
+    font-weight: 600; white-space: nowrap;
+}
 .stats-row { display: flex; gap: 8px; margin-top: 10px; }
 .stat-chip {
     flex: 1; display: flex; align-items: center; gap: 6px; justify-content: center;

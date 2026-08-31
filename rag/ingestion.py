@@ -1,6 +1,6 @@
 """ÉTAPE 2 — Pipeline d'ingestion : extraction → chunking → vectorisation.
 
-Avancement : 2.1 extraction ✅ · 2.2 chunking ✅ · 2.3 vectorisation 🚧
+Avancement : 2.1 extraction ✅ · 2.2 chunking ✅ · 2.3 vectorisation ✅
 
 Ce module ne connaît PAS Streamlit : il reçoit des fichiers, retourne des
 objets — c'est l'interface (app.py) qui gère l'affichage et l'état de session.
@@ -8,13 +8,18 @@ objets — c'est l'interface (app.py) qui gère l'affichage et l'état de sessio
 
 import os
 import tempfile
+from collections import Counter
+from functools import lru_cache
 
 # Les DocumentLoaders : connecteurs "fichier -> objets Document"
 from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
 # Le découpeur récursif : coupe au séparateur le plus "naturel" possible
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+# Embeddings locaux (sentence-transformers) et pont vers la base ChromaDB
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
 
-from rag.config import CHUNK_SIZE, CHUNK_OVERLAP
+from rag.config import CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_MODEL, CHROMA_DIR
 
 
 def load_documents(uploaded_files):
@@ -90,14 +95,81 @@ def split_documents(documents):
     return splitter.split_documents(documents)
 
 
-def build_vectorstore(chunks):
-    """🚧 ÉTAPE 2.3 — Vectorisation : chunks -> embeddings -> ChromaDB.
+@lru_cache(maxsize=1)
+def get_embeddings():
+    """Charge le modèle d'embeddings UNE SEULE FOIS par processus.
 
-    À implémenter : HuggingFaceEmbeddings(EMBEDDING_MODEL) puis
-    Chroma.from_documents(...). Attention : charger le modèle d'embeddings
-    est coûteux — il faudra le mettre en cache côté interface
-    (@st.cache_resource) ou dans ce module.
-
-    Doit retourner : l'objet vectorstore prêt à être interrogé.
+    Instancier HuggingFaceEmbeddings est coûteux (chargement de ~470 Mo de
+    poids en mémoire). Or Streamlit ré-exécute le script à chaque clic :
+    sans cache, chaque indexation rechargerait le modèle. @lru_cache
+    mémorise le résultat du premier appel — même effet que
+    @st.cache_resource, mais sans dépendre de Streamlit (module testable
+    en dehors de l'interface).
     """
-    return None             # ← provisoire : pas encore de base vectorielle
+    return HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+
+
+def _open_vectorstore():
+    """Ouvre (ou crée) la collection ChromaDB persistée sur disque."""
+    return Chroma(
+        collection_name="tp_rag",
+        embedding_function=get_embeddings(),
+        persist_directory=CHROMA_DIR,
+    )
+
+
+def build_vectorstore(chunks):
+    """✅ ÉTAPE 2.3 — Vectorisation : chunks -> embeddings -> ChromaDB.
+
+    add_documents fait tout le travail :
+      1. passe le page_content de CHAQUE chunk au modèle d'embeddings
+         -> un vecteur de 384 nombres par chunk ;
+      2. stocke dans la base le trio (vecteur, texte, métadonnées) —
+         les métadonnées (source, page) restent attachées, comme exigé
+         par le sujet.
+
+    La base est PERSISTÉE sur disque (chroma_db/) : l'index survit aux
+    redémarrages de l'application et aux rafraîchissements de page —
+    cf. load_vectorstore, appelé au démarrage.
+
+    reset_collection d'abord : cliquer "Indexer" REMPLACE l'index par la
+    sélection courante (sans ça, ré-indexer les mêmes fichiers ajouterait
+    chaque chunk en double).
+
+    Retourne : l'objet vectorstore prêt à être interrogé (Étape 3).
+    """
+    vectorstore = _open_vectorstore()
+    vectorstore.reset_collection()
+    vectorstore.add_documents(chunks)
+    return vectorstore
+
+
+def clear_index(vectorstore):
+    """Vide proprement l'index (en passant par le client ChromaDB).
+
+    À utiliser au lieu de supprimer le dossier chroma_db/ à la main : le
+    client Chroma est mis en cache par processus, et supprimer ses fichiers
+    sous ses pieds le laisse avec une base fantôme ("readonly database").
+    """
+    vectorstore.reset_collection()
+
+
+def load_vectorstore():
+    """Restaure l'index persisté par une session précédente, s'il existe.
+
+    Retourne (vectorstore, sources) où sources = [{"name", "n_chunks"}]
+    reconstruit depuis les métadonnées stockées — ou (None, []) si aucun
+    index n'a été persisté.
+    """
+    if not os.path.isdir(CHROMA_DIR):
+        return None, []
+
+    vectorstore = _open_vectorstore()
+    metadatas = vectorstore.get(include=["metadatas"])["metadatas"]
+    if not metadatas:
+        return None, []
+
+    counts = Counter(m.get("source", "inconnue") for m in metadatas)
+    sources = [{"name": name, "n_chunks": n}
+               for name, n in sorted(counts.items())]
+    return vectorstore, sources

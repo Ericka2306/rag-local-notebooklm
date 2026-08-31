@@ -9,6 +9,9 @@ chroma_db/
 # Supports de cours (non redistribuables)
 *.pdf
 
+# Jeu de documents de test local
+documents_test/
+
 # Système / IDE
 .DS_Store
 .streamlit/secrets.toml

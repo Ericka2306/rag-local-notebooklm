@@ -62,7 +62,8 @@ latérale, cliquez sur **Indexer** et posez vos questions.
 ## 📁 Structure du projet
 
 ```
-├── app.py             # Interface Streamlit (Étape 1) — point d'entrée
+├── app.py             # Script de page Streamlit (Étape 1) — point d'entrée
+├── ui.py              # Composants d'affichage réutilisables
 ├── styles.css         # Feuille de style (Material Symbols, palette Google)
 ├── requirements.txt
 └── rag/               # Backend, indépendant de Streamlit
@@ -75,6 +76,6 @@ latérale, cliquez sur **Indexer** et posez vos questions.
 ## 🚧 Statut
 
 - [x] Étape 1 — Interface (sidebar sources, chat, toggle deux modes)
-- [ ] Étape 2 — Pipeline d'ingestion (extraction → chunking → vectorisation)
-- [ ] Étape 3 — Mode recherche sémantique
+- [x] Étape 2 — Pipeline d'ingestion (extraction → chunking → vectorisation)
+- [x] Étape 3 — Mode recherche sémantique
 - [ ] Étape 4 — Mode RAG complet (prompt strict + génération)

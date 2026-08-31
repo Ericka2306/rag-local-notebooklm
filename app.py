@@ -1,24 +1,26 @@
 """
 TP — Système RAG Local (Clone de NotebookLM)
 =============================================
-Point d'entrée : l'INTERFACE Streamlit (Étape 1), et rien d'autre.
-Le pipeline RAG vit dans le package rag/ (un module par étape du TP) ;
-le style vit dans styles.css.
+Point d'entrée : le SCRIPT DE PAGE Streamlit (Étape 1). Il décrit le
+déroulé de l'interface et gère l'état de session, rien d'autre :
+  - les composants d'affichage vivent dans ui.py (+ styles.css) ;
+  - le pipeline RAG vit dans rag/ (un module par étape du TP).
 
 Lancement :  streamlit run app.py
 """
 
-import html
-from pathlib import Path
+from collections import Counter
 
 import streamlit as st
 
-from rag.ingestion import load_documents, split_documents, build_vectorstore
+import ui
+from rag.ingestion import (load_documents, split_documents, build_vectorstore,
+                           load_vectorstore, clear_index)
 from rag.retrieval import semantic_search
 from rag.generation import rag_answer
 
 # =============================================================================
-# CONFIGURATION DE LA PAGE (doit être le tout premier appel Streamlit)
+# PAGE & STYLE
 # =============================================================================
 st.set_page_config(
     page_title="NotebookLM Local",
@@ -26,205 +28,128 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="expanded",
 )
-
-# Feuille de style externe (voir styles.css).
-st.markdown(f"<style>{Path('styles.css').read_text()}</style>",
-            unsafe_allow_html=True)
+ui.load_css()
 
 # =============================================================================
 # ÉTAT DE SESSION
 # =============================================================================
 # Streamlit ré-exécute tout le script à chaque interaction : ce qui doit
-# survivre (historique, index) vit dans st.session_state — géré ICI, côté
-# interface ; le backend rag/ n'y touche jamais.
-if "messages" not in st.session_state:
-    st.session_state.messages = []        # [{role, content, chunks?}, …]
-if "vectorstore" not in st.session_state:
-    st.session_state.vectorstore = None   # base vectorielle (Étape 2.3)
-if "raw_docs" not in st.session_state:
-    st.session_state.raw_docs = []        # Documents extraits (aperçu 2.1)
-if "chunks" not in st.session_state:
-    st.session_state.chunks = []          # chunks découpés (aperçu 2.2)
-if "n_chunks" not in st.session_state:
-    st.session_state.n_chunks = 0
-if "source_names" not in st.session_state:
-    st.session_state.source_names = []    # noms des fichiers indexés
+# survivre vit dans st.session_state — géré ICI, côté interface ; le
+# backend rag/ n'y touche jamais.
+st.session_state.setdefault("messages", [])       # [{role, content, chunks?}]
+st.session_state.setdefault("vectorstore", None)  # base vectorielle (2.3)
+st.session_state.setdefault("sources", [])        # [{name, n_chunks}] indexés
+st.session_state.setdefault("raw_docs", [])       # Documents extraits (débog.)
+st.session_state.setdefault("chunks", [])         # chunks découpés (débog.)
+st.session_state.setdefault("uploader_key", 0)    # sert à vider l'uploader
 
-# Icône Material + couleur selon le type de fichier (cartes de la sidebar).
-FILE_ICONS = {
-    "pdf": ("picture_as_pdf", "#D93025"),   # rouge Google
-    "md":  ("markdown",       "#188038"),   # vert Google
-    "txt": ("description",    "#5F6368"),   # gris
-}
+# Toast différé : l'indexation se termine par un st.rerun(), et un toast
+# émis juste avant serait perdu — on le stocke, il s'affiche ici, après.
+if toast_msg := st.session_state.pop("index_toast", None):
+    st.toast(toast_msg, icon=":material/check_circle:")
 
-# Avatars du chat (icônes Material rendues par Streamlit).
-AVATARS = {"user": ":material/person:", "assistant": ":material/auto_awesome:"}
+# Nouvelle session (démarrage, F5…) : restaure l'index persisté sur disque
+# par une session précédente, s'il existe.
+if st.session_state.vectorstore is None:
+    restored_vs, restored_sources = load_vectorstore()
+    if restored_vs is not None:
+        st.session_state.vectorstore = restored_vs
+        st.session_state.sources = restored_sources
 
-
-def render_chunks(chunks):
-    """Affiche une liste d'extraits sous forme de cartes (source + contenu)."""
-    for chunk in chunks:
-        st.markdown(
-            f"""<div class="chunk-card">
-                <span class="chunk-source"><span class="msr">draft</span>
-                {html.escape(chunk["source"])}</span><br>
-                {html.escape(chunk["content"])}
-            </div>""",
-            unsafe_allow_html=True,
-        )
-
+indexed = bool(st.session_state.sources)
 
 # =============================================================================
-# BARRE LATÉRALE — Sources, indexation, mode (façon panneau NotebookLM)
+# BARRE LATÉRALE — sources, indexation, mode
 # =============================================================================
 with st.sidebar:
-    st.markdown('<div class="side-label">Sources</div>', unsafe_allow_html=True)
-
+    ui.section_label("Ajouter des documents")
+    # La key change après chaque indexation : Streamlit voit un nouveau
+    # widget et repart vide — les fichiers indexés quittent la zone d'ajout
+    # pour n'apparaître que dans "Sources indexées" (comme NotebookLM).
     uploaded_files = st.file_uploader(
         "Glissez vos fichiers ici",
         type=["pdf", "txt", "md"],
         accept_multiple_files=True,
         label_visibility="collapsed",
+        key=f"uploader-{st.session_state.uploader_key}",
     )
-
-    # Aperçu des fichiers sélectionnés (icône typée + nom + taille).
-    for f in uploaded_files or []:
-        icon, color = FILE_ICONS.get(f.name.rsplit(".", 1)[-1].lower(),
-                                     FILE_ICONS["txt"])
-        size_kb = len(f.getvalue()) / 1024
-        st.markdown(
-            f"""<div class="file-card">
-                <span class="msr" style="color:{color}">{icon}</span>
-                {html.escape(f.name)}
-                <span class="file-size">{size_kb:,.0f} Ko</span>
-            </div>""",
-            unsafe_allow_html=True,
-        )
 
     # Bouton d'indexation : enchaîne les trois sous-étapes du pipeline.
     if st.button("Indexer les documents", icon=":material/bolt:",
                  type="primary", use_container_width=True,
                  disabled=not uploaded_files):
         with st.spinner("Extraction → chunking → embeddings…"):
-            docs = load_documents(uploaded_files)                  # 2.1 ✅
-            chunks = split_documents(docs)                         # 2.2 🚧
-            st.session_state.vectorstore = build_vectorstore(chunks)  # 2.3 🚧
+            docs = load_documents(uploaded_files)                     # 2.1
+            chunks = split_documents(docs)                            # 2.2
+            st.session_state.vectorstore = build_vectorstore(chunks)  # 2.3
+        # Bilan de l'index : nombre de chunks obtenus pour chaque fichier.
+        per_source = Counter(c.metadata["source"] for c in chunks)
+        st.session_state.sources = [
+            {"name": f.name, "n_chunks": per_source.get(f.name, 0)}
+            for f in uploaded_files
+        ]
         st.session_state.raw_docs = docs
         st.session_state.chunks = chunks
-        st.session_state.n_chunks = len(chunks)
-        st.session_state.source_names = [f.name for f in uploaded_files]
-        st.toast(f"{len(uploaded_files)} fichier(s) → "
-                 f"{st.session_state.n_chunks} chunks indexés",
-                 icon=":material/check_circle:")
+        st.session_state.index_toast = (f"{len(uploaded_files)} fichier(s) → "
+                                        f"{len(chunks)} chunks indexés")
+        st.session_state.uploader_key += 1   # vide la zone d'ajout
+        st.rerun()
 
-    # Petit tableau de bord de l'index.
-    if st.session_state.source_names:
-        st.markdown(
-            f"""<div class="stats-row">
-                <div class="stat-chip"><span class="msr">folder</span>
-                    {len(st.session_state.source_names)} source(s)</div>
-                <div class="stat-chip"><span class="msr">grid_view</span>
-                    {st.session_state.n_chunks} chunks</div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
+    # La liste de ce qui est RÉELLEMENT dans la base vectorielle
+    # (persiste même si la sélection de l'uploader change).
+    if indexed:
+        st.divider()
+        ui.section_label("Sources indexées")
+        for source in st.session_state.sources:
+            ui.source_card(source["name"], source["n_chunks"])
+        ui.stats_row(len(st.session_state.sources),
+                     sum(s["n_chunks"] for s in st.session_state.sources))
 
-    # 🔬 Aperçu de débogage (Étape 2.1) : permet de VÉRIFIER ce que
-    # l'extraction a produit avant de construire la suite du pipeline.
+        # Vider l'index proprement (via le client ChromaDB, jamais en
+        # supprimant chroma_db/ à la main) puis repartir de zéro.
+        if st.button("Vider l'index", icon=":material/delete:",
+                     use_container_width=True):
+            clear_index(st.session_state.vectorstore)
+            st.session_state.vectorstore = None
+            st.session_state.sources = []
+            st.session_state.raw_docs = []
+            st.session_state.chunks = []
+            st.rerun()
+
+    # 🔬 Aperçus de débogage du pipeline (Étapes 2.1 et 2.2).
     if st.session_state.raw_docs:
-        with st.expander("Aperçu de l'extraction", icon=":material/science:"):
-            docs = st.session_state.raw_docs
-            st.caption(f"{len(docs)} segment(s) extrait(s) — 1 par page de PDF")
-            for doc in docs[:3]:
-                page = doc.metadata.get("page")
-                page_info = f" · page {page + 1}" if page is not None else ""
-                st.markdown(f"**{doc.metadata['source']}**{page_info} "
-                            f"· {len(doc.page_content)} caractères")
-                st.text(doc.page_content[:250] + "…")
-            if len(docs) > 3:
-                st.caption(f"… et {len(docs) - 3} autre(s) segment(s)")
-
-    # 🔬 Aperçu de débogage (Étape 2.2) : distribution des tailles de chunks
-    # et premiers chunks — pour vérifier que le découpage est sensé.
-    if st.session_state.chunks:
-        with st.expander("Aperçu du chunking", icon=":material/content_cut:"):
-            chunks = st.session_state.chunks
-            sizes = [len(c.page_content) for c in chunks]
-            st.caption(f"{len(chunks)} chunks — taille min {min(sizes)} / "
-                       f"moy {sum(sizes)//len(sizes)} / max {max(sizes)} car.")
-            for c in chunks[:2]:
-                page = c.metadata.get("page")
-                page_info = f" · page {page + 1}" if page is not None else ""
-                st.markdown(f"**{c.metadata['source']}**{page_info} "
-                            f"· {len(c.page_content)} caractères")
-                st.text(c.page_content[:200] + "…")
+        st.divider()
+        ui.section_label("Débogage du pipeline")
+        ui.extraction_preview(st.session_state.raw_docs)
+        ui.chunking_preview(st.session_state.chunks)
 
     st.divider()
-    st.markdown('<div class="side-label">Assistant</div>', unsafe_allow_html=True)
-
+    ui.section_label("Assistant")
     # Le fameux toggle du sujet : bascule entre les deux modes.
     llm_enabled = st.toggle("Générer avec le LLM", value=False)
-    if llm_enabled:
-        st.caption("Mode **RAG complet** : réponse rédigée par mistral "
-                   "(Ollama, 100 % local) à partir de vos documents.")
-    else:
-        st.caption("Mode **Recherche sémantique** : extraits bruts de la "
-                   "base vectorielle, aucun LLM.")
-
+    st.caption("Mode **RAG complet** : réponse rédigée par mistral (Ollama, "
+               "100 % local) à partir de vos documents." if llm_enabled else
+               "Mode **Recherche sémantique** : extraits bruts de la base "
+               "vectorielle, aucun LLM.")
 
 # =============================================================================
-# ZONE PRINCIPALE — En-tête, historique de chat, saisie
+# ZONE PRINCIPALE — en-tête, historique, saisie
 # =============================================================================
+ui.header(llm_enabled)
 
-# En-tête : titre + pastille indiquant le mode actif.
-pill = (
-    '<span class="pill pill-rag"><span class="msr">auto_awesome</span>'
-    ' RAG complet</span>'
-    if llm_enabled else
-    '<span class="pill pill-search"><span class="msr">search</span>'
-    ' Recherche sémantique</span>'
-)
-st.markdown(
-    f"""<div class="app-header">
-        <div class="app-title"><span class="msr">auto_stories</span>
-        NotebookLM Local</div>{pill}
-    </div>
-    <div class="app-sub">Vos documents, vos réponses — rien ne quitte
-    votre machine.</div>""",
-    unsafe_allow_html=True,
-)
-
-# Écran d'accueil tant que rien n'est indexé et que le chat est vide.
-if not st.session_state.source_names and not st.session_state.messages:
-    st.markdown(
-        """<div class="hero">
-             <div class="hero-badge"><span class="msr">auto_stories</span></div>
-             <h2>Discutez avec vos documents</h2>
-             <p>Un assistant documentaire 100&nbsp;% local, sans API externe.</p>
-             <div class="steps">
-               <div class="step"><span class="msr">upload_file</span>
-                 <b>1 · Ajouter</b><p>PDF, Markdown ou TXT dans la barre latérale</p></div>
-               <div class="step"><span class="msr">bolt</span>
-                 <b>2 · Indexer</b><p>Extraction, chunking et vectorisation</p></div>
-               <div class="step"><span class="msr">forum</span>
-                 <b>3 · Discuter</b><p>Recherche sémantique ou réponse générée</p></div>
-             </div>
-           </div>""",
-        unsafe_allow_html=True,
-    )
+if not indexed and not st.session_state.messages:
+    ui.hero()
 
 # Ré-affichage de l'historique complet à chaque exécution du script.
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"], avatar=AVATARS[msg["role"]]):
+    with st.chat_message(msg["role"], avatar=ui.AVATARS[msg["role"]]):
         st.markdown(msg["content"])
-        # Réponses RAG : les sources restent consultables dans un expander.
         if msg.get("chunks"):
-            with st.expander("Sources utilisées", icon=":material/format_quote:"):
-                render_chunks(msg["chunks"])
+            with st.expander("Sources utilisées"):
+                ui.chunk_cards(msg["chunks"])
 
-# Saisie utilisateur — désactivée tant qu'aucun document n'est indexé
-# (même comportement que NotebookLM : pas de source, pas de question).
-indexed = bool(st.session_state.source_names)
+# Saisie — désactivée tant que rien n'est indexé (pas de source, pas de
+# question, comme NotebookLM).
 query = st.chat_input(
     "Posez une question sur vos documents…" if indexed
     else "Indexez d'abord des documents dans la barre latérale",
@@ -232,18 +157,18 @@ query = st.chat_input(
 )
 
 if query:
-    # 1) La question de l'utilisateur.
-    with st.chat_message("user", avatar=AVATARS["user"]):
+    with st.chat_message("user", avatar=ui.AVATARS["user"]):
         st.markdown(query)
     st.session_state.messages.append({"role": "user", "content": query})
 
-    # 2) La réponse, selon le mode choisi via le toggle.
-    with st.chat_message("assistant", avatar=AVATARS["assistant"]):
+    with st.chat_message("assistant", avatar=ui.AVATARS["assistant"]):
+        # Dans les deux modes, tout commence par le même retrieval (Étape 3).
+        chunks = semantic_search(st.session_state.vectorstore, query)
+
         if not llm_enabled:
-            # ---- Mode Recherche Sémantique (Étape 3) : extraits bruts ----
-            chunks = semantic_search(st.session_state.vectorstore, query)
+            # ---- Mode Recherche Sémantique : extraits bruts + sources ----
             st.markdown("**Extraits les plus proches de votre question :**")
-            render_chunks(chunks)
+            ui.chunk_cards(chunks)
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": "**Extraits les plus proches de votre question :**\n\n"
@@ -252,10 +177,9 @@ if query:
             })
         else:
             # ---- Mode RAG complet (Étape 4) : réponse + sources ----------
-            chunks = semantic_search(st.session_state.vectorstore, query)
             answer = st.write_stream(rag_answer(query, chunks))
-            with st.expander("Sources utilisées", icon=":material/format_quote:"):
-                render_chunks(chunks)
+            with st.expander("Sources utilisées"):
+                ui.chunk_cards(chunks)
             st.session_state.messages.append(
                 {"role": "assistant", "content": answer, "chunks": chunks}
             )

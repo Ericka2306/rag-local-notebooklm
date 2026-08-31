@@ -6,5 +6,8 @@ langchain-ollama
 langchain-chroma
 chromadb
 sentence-transformers
+# torchvision n'est pas utilisé directement : il neutralise le spam de logs
+# du watcher Streamlit qui déclenche les imports paresseux de transformers
+torchvision
 streamlit
 pymupdf
