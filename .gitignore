@@ -1,0 +1,14 @@
+# Environnement Python
+.venv/
+__pycache__/
+*.pyc
+
+# Base vectorielle locale (générée à l'exécution)
+chroma_db/
+
+# Supports de cours (non redistribuables)
+*.pdf
+
+# Système / IDE
+.DS_Store
+.streamlit/secrets.toml
