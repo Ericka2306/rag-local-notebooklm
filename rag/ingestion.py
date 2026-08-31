@@ -1,6 +1,6 @@
 """ÉTAPE 2 — Pipeline d'ingestion : extraction → chunking → vectorisation.
 
-Avancement : 2.1 extraction ✅ · 2.2 chunking 🚧 · 2.3 vectorisation 🚧
+Avancement : 2.1 extraction ✅ · 2.2 chunking ✅ · 2.3 vectorisation 🚧
 
 Ce module ne connaît PAS Streamlit : il reçoit des fichiers, retourne des
 objets — c'est l'interface (app.py) qui gère l'affichage et l'état de session.
@@ -11,6 +11,10 @@ import tempfile
 
 # Les DocumentLoaders : connecteurs "fichier -> objets Document"
 from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
+# Le découpeur récursif : coupe au séparateur le plus "naturel" possible
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from rag.config import CHUNK_SIZE, CHUNK_OVERLAP
 
 
 def load_documents(uploaded_files):
@@ -61,15 +65,29 @@ def load_documents(uploaded_files):
 
 
 def split_documents(documents):
-    """🚧 ÉTAPE 2.2 — Chunking : découper les Documents en segments.
+    """✅ ÉTAPE 2.2 — Chunking : découper les Documents en segments.
 
-    À implémenter : RecursiveCharacterTextSplitter avec CHUNK_SIZE et
-    CHUNK_OVERLAP (rag/config.py) — la justification des valeurs y est
-    attendue. Les métadonnées doivent être propagées aux chunks.
+    Pourquoi découper ? Deux raisons opposées à équilibrer :
+      - un chunk trop GROS mélange plusieurs sujets -> son embedding est
+        "dilué", la recherche devient imprécise, et on gaspille la fenêtre
+        de contexte du LLM à l'Étape 4 ;
+      - un chunk trop PETIT (une phrase isolée) n'a plus assez de contexte
+        pour être compris, ni par la recherche ni par le LLM.
+    Les valeurs retenues (et leur justification) : rag/config.py.
 
-    Doit retourner : une liste de Documents (les chunks).
+    "Recursive" = le splitter essaie de couper au séparateur le plus naturel
+    d'abord : entre paragraphes ("\\n\\n"), sinon entre lignes ("\\n"), sinon
+    entre mots (" "), en dernier recours au milieu d'un mot. Les frontières
+    de chunks tombent donc (presque toujours) à des endroits sensés.
+
+    Les métadonnées (source, page) sont propagées automatiquement à chaque
+    chunk par split_documents — indispensable pour citer les sources.
     """
-    return documents        # ← provisoire : aucun découpage (1 chunk = 1 page)
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,        # taille MAXIMALE d'un chunk (caractères)
+        chunk_overlap=CHUNK_OVERLAP,  # chevauchement entre chunks consécutifs
+    )
+    return splitter.split_documents(documents)
 
 
 def build_vectorstore(chunks):

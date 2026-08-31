@@ -43,6 +43,8 @@ if "vectorstore" not in st.session_state:
     st.session_state.vectorstore = None   # base vectorielle (Étape 2.3)
 if "raw_docs" not in st.session_state:
     st.session_state.raw_docs = []        # Documents extraits (aperçu 2.1)
+if "chunks" not in st.session_state:
+    st.session_state.chunks = []          # chunks découpés (aperçu 2.2)
 if "n_chunks" not in st.session_state:
     st.session_state.n_chunks = 0
 if "source_names" not in st.session_state:
@@ -108,6 +110,7 @@ with st.sidebar:
             chunks = split_documents(docs)                         # 2.2 🚧
             st.session_state.vectorstore = build_vectorstore(chunks)  # 2.3 🚧
         st.session_state.raw_docs = docs
+        st.session_state.chunks = chunks
         st.session_state.n_chunks = len(chunks)
         st.session_state.source_names = [f.name for f in uploaded_files]
         st.toast(f"{len(uploaded_files)} fichier(s) → "
@@ -140,6 +143,21 @@ with st.sidebar:
                 st.text(doc.page_content[:250] + "…")
             if len(docs) > 3:
                 st.caption(f"… et {len(docs) - 3} autre(s) segment(s)")
+
+    # 🔬 Aperçu de débogage (Étape 2.2) : distribution des tailles de chunks
+    # et premiers chunks — pour vérifier que le découpage est sensé.
+    if st.session_state.chunks:
+        with st.expander("Aperçu du chunking", icon=":material/content_cut:"):
+            chunks = st.session_state.chunks
+            sizes = [len(c.page_content) for c in chunks]
+            st.caption(f"{len(chunks)} chunks — taille min {min(sizes)} / "
+                       f"moy {sum(sizes)//len(sizes)} / max {max(sizes)} car.")
+            for c in chunks[:2]:
+                page = c.metadata.get("page")
+                page_info = f" · page {page + 1}" if page is not None else ""
+                st.markdown(f"**{c.metadata['source']}**{page_info} "
+                            f"· {len(c.page_content)} caractères")
+                st.text(c.page_content[:200] + "…")
 
     st.divider()
     st.markdown('<div class="side-label">Assistant</div>', unsafe_allow_html=True)
