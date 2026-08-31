@@ -59,6 +59,19 @@ streamlit run app.py
 Puis ouvrez http://localhost:8501, ajoutez vos documents dans la barre
 latérale, cliquez sur **Indexer** et posez vos questions.
 
+## 📁 Structure du projet
+
+```
+├── app.py             # Interface Streamlit (Étape 1) — point d'entrée
+├── styles.css         # Feuille de style (Material Symbols, palette Google)
+├── requirements.txt
+└── rag/               # Backend, indépendant de Streamlit
+    ├── config.py      # Constantes : modèles, chunking, top-k
+    ├── ingestion.py   # Étape 2 : extraction → chunking → vectorisation
+    ├── retrieval.py   # Étape 3 : recherche sémantique
+    └── generation.py  # Étape 4 : prompt strict + génération LLM
+```
+
 ## 🚧 Statut
 
 - [x] Étape 1 — Interface (sidebar sources, chat, toggle deux modes)

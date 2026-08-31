@@ -1,0 +1,85 @@
+"""ÉTAPE 2 — Pipeline d'ingestion : extraction → chunking → vectorisation.
+
+Avancement : 2.1 extraction ✅ · 2.2 chunking 🚧 · 2.3 vectorisation 🚧
+
+Ce module ne connaît PAS Streamlit : il reçoit des fichiers, retourne des
+objets — c'est l'interface (app.py) qui gère l'affichage et l'état de session.
+"""
+
+import os
+import tempfile
+
+# Les DocumentLoaders : connecteurs "fichier -> objets Document"
+from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
+
+
+def load_documents(uploaded_files):
+    """✅ ÉTAPE 2.1 — Extraction : fichiers uploadés -> objets Document.
+
+    Un objet Document LangChain = du texte (page_content) + des métadonnées
+    (metadata). Pour un PDF, PyMuPDFLoader produit UN Document PAR PAGE,
+    avec le numéro de page dans metadata — précieux pour citer les sources.
+
+    `uploaded_files` : objets exposant .name et .getvalue() (les UploadedFile
+    de Streamlit, ou n'importe quel objet compatible — testable sans UI).
+
+    Piège résolu ici : les fichiers uploadés par Streamlit vivent EN MÉMOIRE,
+    alors que les loaders LangChain attendent un CHEMIN sur disque. On écrit
+    donc chaque fichier dans un fichier temporaire, on le charge, puis on le
+    supprime.
+    """
+    documents = []
+    for uploaded in uploaded_files:
+        # Extension du fichier original (".pdf", ".txt", ".md")
+        suffix = os.path.splitext(uploaded.name)[1].lower()
+
+        # Copie temporaire sur disque (delete=False : on gère la suppression
+        # nous-mêmes, APRÈS que le loader a lu le fichier).
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(uploaded.getvalue())      # contenu binaire du fichier
+            tmp_path = tmp.name
+
+        try:
+            # Le bon DocumentLoader selon le format (cf. sujet, Étape 2.1).
+            if suffix == ".pdf":
+                loader = PyMuPDFLoader(tmp_path)
+            else:
+                loader = TextLoader(tmp_path, encoding="utf-8")
+
+            for doc in loader.load():
+                # Le loader a mis le CHEMIN TEMPORAIRE dans metadata["source"]
+                # (ex: /var/folders/…/tmpx7.pdf). On l'écrase par le vrai nom
+                # du fichier : l'affichage des sources (Étape 3) en dépend.
+                doc.metadata["source"] = uploaded.name
+                documents.append(doc)
+        finally:
+            # Exécuté même si le loader lève une erreur : pas de fichiers
+            # temporaires orphelins qui s'accumulent.
+            os.remove(tmp_path)
+
+    return documents
+
+
+def split_documents(documents):
+    """🚧 ÉTAPE 2.2 — Chunking : découper les Documents en segments.
+
+    À implémenter : RecursiveCharacterTextSplitter avec CHUNK_SIZE et
+    CHUNK_OVERLAP (rag/config.py) — la justification des valeurs y est
+    attendue. Les métadonnées doivent être propagées aux chunks.
+
+    Doit retourner : une liste de Documents (les chunks).
+    """
+    return documents        # ← provisoire : aucun découpage (1 chunk = 1 page)
+
+
+def build_vectorstore(chunks):
+    """🚧 ÉTAPE 2.3 — Vectorisation : chunks -> embeddings -> ChromaDB.
+
+    À implémenter : HuggingFaceEmbeddings(EMBEDDING_MODEL) puis
+    Chroma.from_documents(...). Attention : charger le modèle d'embeddings
+    est coûteux — il faudra le mettre en cache côté interface
+    (@st.cache_resource) ou dans ce module.
+
+    Doit retourner : l'objet vectorstore prêt à être interrogé.
+    """
+    return None             # ← provisoire : pas encore de base vectorielle
