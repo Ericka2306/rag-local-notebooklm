@@ -110,11 +110,20 @@ def get_embeddings():
 
 
 def _open_vectorstore():
-    """Ouvre (ou crée) la collection ChromaDB persistée sur disque."""
+    """Ouvre (ou crée) la collection ChromaDB persistée sur disque.
+
+    Métrique "cosine" plutôt que le L2 par défaut de Chroma : la similarité
+    cosinus est normalisée, donc les scores de pertinence sont directement
+    interprétables entre 0 et 1 — indispensable pour appliquer un seuil
+    (MIN_RELEVANCE) et afficher des scores lisibles dans l'interface.
+    NB : changer la métrique exige de ré-indexer (la collection est
+    recréée avec ces réglages par reset_collection).
+    """
     return Chroma(
         collection_name="tp_rag",
         embedding_function=get_embeddings(),
         persist_directory=CHROMA_DIR,
+        collection_metadata={"hnsw:space": "cosine"},
     )
 
 
@@ -165,6 +174,16 @@ def load_vectorstore():
         return None, []
 
     vectorstore = _open_vectorstore()
+
+    # Garde-fou : un index créé avec une autre métrique que la nôtre
+    # (ex. le L2 par défaut, avant le passage au cosinus) produirait des
+    # scores faussés — tout passerait sous le seuil de pertinence, en
+    # silence. On le déclare inutilisable : l'utilisateur ré-indexe, et
+    # reset_collection recrée la collection avec la bonne métrique.
+    metric = (vectorstore._collection.metadata or {}).get("hnsw:space")
+    if metric != "cosine":
+        return None, []
+
     metadatas = vectorstore.get(include=["metadatas"])["metadatas"]
     if not metadatas:
         return None, []

@@ -78,4 +78,4 @@ latérale, cliquez sur **Indexer** et posez vos questions.
 - [x] Étape 1 — Interface (sidebar sources, chat, toggle deux modes)
 - [x] Étape 2 — Pipeline d'ingestion (extraction → chunking → vectorisation)
 - [x] Étape 3 — Mode recherche sémantique
-- [ ] Étape 4 — Mode RAG complet (prompt strict + génération)
+- [x] Étape 4 — Mode RAG complet (prompt strict + génération)
