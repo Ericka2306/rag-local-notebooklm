@@ -13,6 +13,7 @@ from collections import Counter
 
 import streamlit as st
 
+import auth
 import chat_history
 import ui
 from rag.config import MIN_RELEVANCE
@@ -33,33 +34,43 @@ st.set_page_config(
 ui.load_css()
 
 # =============================================================================
-# ÉTAT DE SESSION
+# AUTHENTIFICATION — rien ne s'affiche ni ne se charge sans session valide
+# =============================================================================
+authenticator, user = auth.require_login()
+
+# =============================================================================
+# ÉTAT DE SESSION (cloisonné par utilisateur)
 # =============================================================================
 # Streamlit ré-exécute tout le script à chaque interaction : ce qui doit
 # survivre vit dans st.session_state — géré ICI, côté interface ; le
 # backend rag/ n'y touche jamais.
-# L'historique est persisté sur disque (chat_history.json) : une nouvelle
-# session (démarrage, F5) recharge la conversation là où elle en était.
-if "messages" not in st.session_state:
-    st.session_state.messages = chat_history.load()
-st.session_state.setdefault("vectorstore", None)  # base vectorielle (2.3)
-st.session_state.setdefault("sources", [])        # [{name, n_chunks}] indexés
-st.session_state.setdefault("raw_docs", [])       # Documents extraits (débog.)
-st.session_state.setdefault("chunks", [])         # chunks découpés (débog.)
+# Les données durables (index, historique) sont persistées sur disque PAR
+# UTILISATEUR ; on les (re)charge quand l'utilisateur de la session change
+# (connexion, ou déconnexion/reconnexion sous un autre compte).
+if st.session_state.get("data_user") != user:
+    st.session_state.messages = chat_history.load(user)
+    vs, sources = load_vectorstore(user)
+    st.session_state.vectorstore = vs
+    st.session_state.sources = sources
+    st.session_state.raw_docs = []     # aperçus de débogage (session courante)
+    st.session_state.chunks = []
+    # Marqueur posé EN DERNIER : si le script est interrompu en plein
+    # chargement (rerun, exception), le bloc se rejouera entièrement au
+    # lieu de laisser un état à moitié initialisé.
+    st.session_state.data_user = user
+# Ceinture de sécurité : des valeurs par défaut pour chaque clé utilisée
+# plus bas, quoi qu'il arrive.
+st.session_state.setdefault("messages", [])
+st.session_state.setdefault("vectorstore", None)
+st.session_state.setdefault("sources", [])
+st.session_state.setdefault("raw_docs", [])
+st.session_state.setdefault("chunks", [])
 st.session_state.setdefault("uploader_key", 0)    # sert à vider l'uploader
 
 # Toast différé : l'indexation se termine par un st.rerun(), et un toast
 # émis juste avant serait perdu — on le stocke, il s'affiche ici, après.
 if toast_msg := st.session_state.pop("index_toast", None):
     st.toast(toast_msg, icon=":material/check_circle:")
-
-# Nouvelle session (démarrage, F5…) : restaure l'index persisté sur disque
-# par une session précédente, s'il existe.
-if st.session_state.vectorstore is None:
-    restored_vs, restored_sources = load_vectorstore()
-    if restored_vs is not None:
-        st.session_state.vectorstore = restored_vs
-        st.session_state.sources = restored_sources
 
 indexed = bool(st.session_state.sources)
 
@@ -86,7 +97,7 @@ with st.sidebar:
         with st.spinner("Extraction → chunking → embeddings…"):
             docs = load_documents(uploaded_files)                     # 2.1
             chunks = split_documents(docs)                            # 2.2
-            st.session_state.vectorstore = build_vectorstore(chunks)  # 2.3
+            st.session_state.vectorstore = build_vectorstore(chunks, user)
         # Bilan de l'index : nombre de chunks obtenus pour chaque fichier.
         per_source = Counter(c.metadata["source"] for c in chunks)
         st.session_state.sources = [
@@ -141,9 +152,16 @@ with st.sidebar:
     if st.session_state.messages and st.button(
             "Nouvelle conversation", icon=":material/add_comment:",
             use_container_width=True):
-        chat_history.clear()
+        chat_history.clear(user)
         st.session_state.messages = []
         st.rerun()
+
+    st.divider()
+    ui.section_label("Compte")
+    st.caption(f"Connecté·e : **{st.session_state.get('name', user)}**")
+    # Déconnexion : streamlit-authenticator efface le cookie de session et
+    # ses clés de session_state, puis relance le script -> retour au login.
+    authenticator.logout("Se déconnecter", location="sidebar")
 
 # =============================================================================
 # ZONE PRINCIPALE — en-tête, historique, saisie
@@ -215,4 +233,4 @@ if query:
 
     # Sauvegarde de l'échange complet (question + réponse) sur disque —
     # un seul point de sauvegarde couvre tous les chemins ci-dessus.
-    chat_history.save(st.session_state.messages)
+    chat_history.save(st.session_state.messages, user)

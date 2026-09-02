@@ -11,3 +11,5 @@ sentence-transformers
 torchvision
 streamlit
 pymupdf
+# Extension multi-utilisateur : login avec mots de passe bcrypt + cookie
+streamlit-authenticator
