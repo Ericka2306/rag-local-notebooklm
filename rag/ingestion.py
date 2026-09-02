@@ -109,8 +109,12 @@ def get_embeddings():
     return HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
 
 
-def _open_vectorstore():
-    """Ouvre (ou crée) la collection ChromaDB persistée sur disque.
+def _open_vectorstore(user):
+    """Ouvre (ou crée) la collection ChromaDB de CET utilisateur.
+
+    Cloisonnement multi-utilisateur : une collection par identifiant
+    ("rag_ericka", "rag_demo", …) dans la même base persistée — chaque
+    utilisateur ne voit et n'interroge que ses propres documents.
 
     Métrique "cosine" plutôt que le L2 par défaut de Chroma : la similarité
     cosinus est normalisée, donc les scores de pertinence sont directement
@@ -120,14 +124,14 @@ def _open_vectorstore():
     recréée avec ces réglages par reset_collection).
     """
     return Chroma(
-        collection_name="tp_rag",
+        collection_name=f"rag_{user}",
         embedding_function=get_embeddings(),
         persist_directory=CHROMA_DIR,
         collection_metadata={"hnsw:space": "cosine"},
     )
 
 
-def build_vectorstore(chunks):
+def build_vectorstore(chunks, user):
     """✅ ÉTAPE 2.3 — Vectorisation : chunks -> embeddings -> ChromaDB.
 
     add_documents fait tout le travail :
@@ -147,7 +151,7 @@ def build_vectorstore(chunks):
 
     Retourne : l'objet vectorstore prêt à être interrogé (Étape 3).
     """
-    vectorstore = _open_vectorstore()
+    vectorstore = _open_vectorstore(user)
     vectorstore.reset_collection()
     vectorstore.add_documents(chunks)
     return vectorstore
@@ -163,8 +167,8 @@ def clear_index(vectorstore):
     vectorstore.reset_collection()
 
 
-def load_vectorstore():
-    """Restaure l'index persisté par une session précédente, s'il existe.
+def load_vectorstore(user):
+    """Restaure l'index persisté de CET utilisateur, s'il existe.
 
     Retourne (vectorstore, sources) où sources = [{"name", "n_chunks"}]
     reconstruit depuis les métadonnées stockées — ou (None, []) si aucun
@@ -173,7 +177,7 @@ def load_vectorstore():
     if not os.path.isdir(CHROMA_DIR):
         return None, []
 
-    vectorstore = _open_vectorstore()
+    vectorstore = _open_vectorstore(user)
 
     # Garde-fou : un index créé avec une autre métrique que la nôtre
     # (ex. le L2 par défaut, avant le passage au cosinus) produirait des

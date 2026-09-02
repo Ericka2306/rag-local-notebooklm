@@ -15,7 +15,12 @@ quitte votre machine** — aucun appel à une API externe.
   - 🤖 **RAG complet** — un LLM local rédige une réponse contrainte par les
     documents, avec les sources consultables sous chaque réponse
 - **Confidentialité totale** : embeddings et génération s'exécutent en local
+- **Multi-utilisateur** (extension au-delà du sujet) : connexion par compte
+  (mots de passe bcrypt, cookie de session), index vectoriel et historique
+  de conversation **cloisonnés par utilisateur** et persistés sur disque
 - Design inspiré de NotebookLM (Material Symbols, palette Google)
+
+Comptes de démonstration : `ericka / M1-rag-2026` et `demo / demo1234`.
 
 ## 🏗️ Architecture
 
@@ -65,6 +70,9 @@ latérale, cliquez sur **Indexer** et posez vos questions.
 ├── app.py             # Script de page Streamlit (Étape 1) — point d'entrée
 ├── ui.py              # Composants d'affichage réutilisables
 ├── styles.css         # Feuille de style (Material Symbols, palette Google)
+├── auth.py            # Authentification (streamlit-authenticator)
+├── users.yaml         # Comptes (mots de passe hachés bcrypt)
+├── chat_history.py    # Persistance de l'historique, par utilisateur
 ├── requirements.txt
 └── rag/               # Backend, indépendant de Streamlit
     ├── config.py      # Constantes : modèles, chunking, top-k

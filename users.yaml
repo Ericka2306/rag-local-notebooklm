@@ -1,0 +1,26 @@
+# Comptes utilisateurs de l'application (extension multi-utilisateur).
+#
+# Les mots de passe sont HACHÉS avec bcrypt — jamais stockés en clair.
+# Comptes de démonstration (identifiant / mot de passe) :
+#   ericka / M1-rag-2026
+#   demo   / demo1234
+#
+# NB (production) : ce fichier et surtout cookie.key seraient des secrets
+# (variables d'environnement, gestionnaire de secrets) — ils ne sont
+# commités ici que parce qu'il s'agit d'un TP avec comptes de démo.
+
+cookie:
+  name: notebooklm_local_auth
+  key: 2d59fc2f9b69ee33947e4959e3e071edf0bd2b060df478d7ac1130902653f2f6
+  expiry_days: 30
+
+credentials:
+  usernames:
+    ericka:
+      name: Ericka
+      email: ericka@example.com
+      password: $2b$12$sBwC.VN2fehU.lUZ3M71a.mCD0obnOTQnSUlIrIlHn67p/CyPCCd6
+    demo:
+      name: Compte Démo
+      email: demo@example.com
+      password: $2b$12$rCEQnzGsm.uqj8lXgfioeOEFcNit0M.8oI0ght2lvl5vqx8xOyXd2
