@@ -35,3 +35,10 @@ CHROMA_DIR = str(Path(__file__).resolve().parent.parent / "chroma_db")
 
 # Nombre de chunks récupérés par requête (le "top-k" de la similarité).
 TOP_K = 4
+
+# Seuil de pertinence (similarité cosinus, 0..1) appliqué en mode RAG :
+# un chunk sous ce score n'entre pas dans le contexte du LLM. Calibré
+# empiriquement sur les documents de test : les vraies cibles scorent
+# 0.48-0.72, le bruit d'accompagnement 0.22-0.44, le hors-sujet < 0.16.
+# Le mode audit (toggle désactivé) ignore ce seuil : on veut tout voir.
+MIN_RELEVANCE = 0.40

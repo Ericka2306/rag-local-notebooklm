@@ -62,14 +62,22 @@ def stats_row(n_sources, n_chunks):
 
 
 def chunk_cards(chunks):
-    """Cartes des extraits retournés par la recherche (source + contenu)."""
+    """Cartes des extraits retournés par la recherche (source + contenu).
+
+    HTML volontairement compact (une seule ligne, sauts de ligne convertis
+    en <br>) : st.markdown interprète le Markdown, et une ligne indentée
+    après une ligne vide deviendrait un bloc de code — on a vu des </div>
+    s'afficher en clair à cause de ça.
+    """
     for chunk in chunks:
+        content = html.escape(chunk["content"]).replace("\n", "<br>")
+        score = chunk.get("score")
+        badge = (f'<span class="sim-badge">similarité {score:.2f}</span>'
+                 if score is not None else "")
         st.markdown(
-            f"""<div class="chunk-card">
-                <span class="chunk-source"><span class="msr">draft</span>
-                {html.escape(chunk["source"])}</span><br>
-                {html.escape(chunk["content"])}
-            </div>""",
+            f'<div class="chunk-card">{badge}'
+            f'<span class="chunk-source"><span class="msr">draft</span> '
+            f'{html.escape(chunk["source"])}</span><br>{content}</div>',
             unsafe_allow_html=True,
         )
 

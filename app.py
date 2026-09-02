@@ -13,7 +13,9 @@ from collections import Counter
 
 import streamlit as st
 
+import chat_history
 import ui
+from rag.config import MIN_RELEVANCE
 from rag.ingestion import (load_documents, split_documents, build_vectorstore,
                            load_vectorstore, clear_index)
 from rag.retrieval import semantic_search
@@ -36,7 +38,10 @@ ui.load_css()
 # Streamlit ré-exécute tout le script à chaque interaction : ce qui doit
 # survivre vit dans st.session_state — géré ICI, côté interface ; le
 # backend rag/ n'y touche jamais.
-st.session_state.setdefault("messages", [])       # [{role, content, chunks?}]
+# L'historique est persisté sur disque (chat_history.json) : une nouvelle
+# session (démarrage, F5) recharge la conversation là où elle en était.
+if "messages" not in st.session_state:
+    st.session_state.messages = chat_history.load()
 st.session_state.setdefault("vectorstore", None)  # base vectorielle (2.3)
 st.session_state.setdefault("sources", [])        # [{name, n_chunks}] indexés
 st.session_state.setdefault("raw_docs", [])       # Documents extraits (débog.)
@@ -132,6 +137,14 @@ with st.sidebar:
                "Mode **Recherche sémantique** : extraits bruts de la base "
                "vectorielle, aucun LLM.")
 
+    # Repartir d'une conversation vierge (efface aussi la sauvegarde).
+    if st.session_state.messages and st.button(
+            "Nouvelle conversation", icon=":material/add_comment:",
+            use_container_width=True):
+        chat_history.clear()
+        st.session_state.messages = []
+        st.rerun()
+
 # =============================================================================
 # ZONE PRINCIPALE — en-tête, historique, saisie
 # =============================================================================
@@ -162,24 +175,44 @@ if query:
     st.session_state.messages.append({"role": "user", "content": query})
 
     with st.chat_message("assistant", avatar=ui.AVATARS["assistant"]):
-        # Dans les deux modes, tout commence par le même retrieval (Étape 3).
-        chunks = semantic_search(st.session_state.vectorstore, query)
-
         if not llm_enabled:
-            # ---- Mode Recherche Sémantique : extraits bruts + sources ----
+            # ---- Mode Recherche Sémantique (Étape 3) : AUDIT --------------
+            # Pas de seuil : on montre TOUT le top-k avec les scores, y
+            # compris ce que le mode RAG écarterait — c'est le but du mode.
+            chunks = semantic_search(st.session_state.vectorstore, query)
             st.markdown("**Extraits les plus proches de votre question :**")
             ui.chunk_cards(chunks)
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": "**Extraits les plus proches de votre question :**\n\n"
-                           + "\n\n".join(f"> {c['content']}\n> — *{c['source']}*"
-                                         for c in chunks),
+                           + "\n\n".join(
+                               f"> {c['content']}\n> — *{c['source']}* "
+                               f"(similarité {c['score']:.2f})"
+                               for c in chunks),
             })
         else:
             # ---- Mode RAG complet (Étape 4) : réponse + sources ----------
-            answer = st.write_stream(rag_answer(query, chunks))
-            with st.expander("Sources utilisées"):
-                ui.chunk_cards(chunks)
-            st.session_state.messages.append(
-                {"role": "assistant", "content": answer, "chunks": chunks}
-            )
+            # Seuls les chunks au-dessus du seuil de pertinence entrent
+            # dans le contexte du LLM (fini le top-4 systématique).
+            chunks = semantic_search(st.session_state.vectorstore, query,
+                                     min_score=MIN_RELEVANCE)
+            if not chunks:
+                # Rien d'assez pertinent : inutile d'appeler le LLM.
+                answer = ("Aucun passage de vos documents n'est assez "
+                          "proche de cette question (tous les scores sont "
+                          "sous le seuil de pertinence). Reformulez, ou "
+                          "vérifiez en mode recherche sémantique.")
+                st.markdown(answer)
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": answer})
+            else:
+                answer = st.write_stream(rag_answer(query, chunks))
+                with st.expander("Sources utilisées"):
+                    ui.chunk_cards(chunks)
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": answer, "chunks": chunks}
+                )
+
+    # Sauvegarde de l'échange complet (question + réponse) sur disque —
+    # un seul point de sauvegarde couvre tous les chemins ci-dessus.
+    chat_history.save(st.session_state.messages)

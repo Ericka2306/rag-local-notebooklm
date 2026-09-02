@@ -101,6 +101,11 @@ header[data-testid="stHeader"] { background: transparent; }
     display: inline-flex; align-items: center; gap: 5px;
     color: #1A73E8; font-weight: 600; font-size: 0.78rem; margin-bottom: 4px;
 }
+.chunk-card .sim-badge {
+    float: right; background: #E8F0FE; color: #1A73E8;
+    border-radius: 999px; padding: 2px 9px; font-size: 0.72rem;
+    font-weight: 600; margin-left: 8px;
+}
 
 /* ---------- Écran d'accueil ---------- */
 .hero { text-align: center; padding: 2.2rem 1rem 0.5rem 1rem; }
