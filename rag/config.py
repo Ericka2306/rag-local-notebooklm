@@ -6,6 +6,12 @@
 # (~470 Mo, vecteurs de 384 dimensions). Le classique all-MiniLM-L6-v2 est
 # surtout entraîné sur de l'anglais — mauvais choix pour du français.
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+# Alternative testée et ÉCARTÉE : intfloat/multilingual-e5-base (~1,1 Go).
+# Scores bien plus élevés (0.847 contre 0.592) mais marge par rapport au
+# bruit 6x plus faible (+0.043 contre +0.274), y compris avec ses préfixes
+# "query:"/"passage:" obligatoires : il juge tout également pertinent,
+# donc aucun seuil (MIN_RELEVANCE) n'est plaçable. Un score élevé ne vaut
+# rien sans séparation — c'est la marge qui décide.
 
 # Modèle génératif servi par Ollama (cf. sujet : mistral ou qwen2.5-coder).
 LLM_MODEL = "mistral"
@@ -20,6 +26,40 @@ CHUNK_SIZE = 1000
 # chunk_overlap = 150 caractères (15 %) : le chevauchement évite qu'une idée
 #   coupée à la frontière de deux chunks devienne introuvable.
 CHUNK_OVERLAP = 150
+
+# --- Stratégie de découpage ---------------------------------------------------
+# La leçon (p. 13) demande des passages "suffisamment PETITS et COHÉRENTS" :
+#   - "recursive" : plafond de taille fixe, coupe au séparateur le plus
+#     naturel (paragraphe > ligne > mot). Garantit "petits" ; "cohérents"
+#     seulement si la mise en page l'est. Rapide, prévisible — le DÉFAUT.
+#   - "semantic"  : vectorise chaque phrase et coupe là où la similarité
+#     entre phrases consécutives chute (changement de sujet). Vise
+#     "cohérents" directement, au prix d'une indexation plus lente (un
+#     passage du modèle d'embeddings par phrase) et de tailles variables.
+# Le défaut n'est pas une intuition mais une MESURE (voir benchmark.py,
+# 10 questions à document attendu connu, sur documents_test/) :
+#   recursive  top-1 10/10   score 0.592   marge +0.274
+#   semantic   top-1  9/10   score 0.560   marge +0.258
+# Le sémantique échoue notamment sur "combien de jour de conge?" : sur ces
+# documents Markdown BIEN STRUCTURÉS, il coupe en travers des sections
+# (un chunk mêlant fin du télétravail et début des congés), là où le
+# récursif respecte les titres. Le sémantique paierait sur du texte au
+# kilomètre sans structure — pas ici.
+CHUNKING_STRATEGIES = ("recursive", "semantic")
+CHUNKING_STRATEGY = "recursive"
+
+# Chunking sémantique : on coupe quand la distance entre deux phrases
+# consécutives dépasse le 75e percentile des distances du document
+# (= ~25 % des transitions les plus fortes deviennent des frontières).
+SEMANTIC_BREAKPOINT_PERCENTILE = 75
+
+# Garde-fous de taille, dans les deux sens :
+#   - un chunk sémantique trop COURT (titre isolé, phrase orpheline) n'a
+#     pas assez de contexte pour être retrouvé -> fusionné avec le suivant ;
+#   - un chunk trop LONG (texte au kilomètre sans rupture de sujet) dilue
+#     son embedding -> re-découpé au-delà du plafond.
+SEMANTIC_MIN_CHUNK_SIZE = 200
+SEMANTIC_MAX_CHUNK_SIZE = 2 * CHUNK_SIZE
 
 # --- Persistance -------------------------------------------------------------
 

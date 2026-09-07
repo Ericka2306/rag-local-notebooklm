@@ -4,6 +4,7 @@ langchain-community
 langchain-huggingface
 langchain-ollama
 langchain-chroma
+langchain-experimental   # SemanticChunker (stratégie de chunking sémantique)
 chromadb
 sentence-transformers
 # torchvision n'est pas utilisé directement : il neutralise le spam de logs

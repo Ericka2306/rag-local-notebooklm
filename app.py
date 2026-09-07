@@ -16,7 +16,8 @@ import streamlit as st
 import auth
 import chat_history
 import ui
-from rag.config import MIN_RELEVANCE
+from rag.config import (MIN_RELEVANCE, CHUNKING_STRATEGIES, CHUNKING_STRATEGY,
+                        LLM_MODEL)
 from rag.ingestion import (load_documents, split_documents, build_vectorstore,
                            load_vectorstore, clear_index)
 from rag.retrieval import semantic_search
@@ -78,6 +79,24 @@ indexed = bool(st.session_state.sources)
 # BARRE LATÉRALE — sources, indexation, mode
 # =============================================================================
 with st.sidebar:
+    # Le mode d'abord : c'est le réglage qu'on change le plus souvent, une
+    # fois les documents indexés (le fameux toggle du sujet).
+    ui.section_label("Assistant")
+    llm_enabled = st.toggle("Générer avec le LLM", value=False)
+    st.caption("Mode **RAG complet** : réponse rédigée par mistral (Ollama, "
+               "100 % local) à partir de vos documents." if llm_enabled else
+               "Mode **Recherche sémantique** : extraits bruts de la base "
+               "vectorielle, aucun LLM.")
+
+    # Repartir d'une conversation vierge (efface aussi la sauvegarde).
+    if st.session_state.messages and st.button(
+            "Nouvelle conversation", icon=":material/add_comment:",
+            use_container_width=True):
+        chat_history.clear(user)
+        st.session_state.messages = []
+        st.rerun()
+
+    st.divider()
     ui.section_label("Ajouter des documents")
     # La key change après chaque indexation : Streamlit voit un nouveau
     # widget et repart vide — les fichiers indexés quittent la zone d'ajout
@@ -90,13 +109,26 @@ with st.sidebar:
         key=f"uploader-{st.session_state.uploader_key}",
     )
 
+    # Stratégie de découpage (Étape 2.2) : les deux sont implémentées pour
+    # pouvoir les comparer dans l'aperçu de débogage — cf. rag/config.py.
+    strategy = st.selectbox(
+        "Stratégie de découpage",
+        CHUNKING_STRATEGIES,
+        index=CHUNKING_STRATEGIES.index(CHUNKING_STRATEGY),
+        format_func=lambda s: {"recursive": "Récursive (taille fixe)",
+                               "semantic": "Sémantique (par le sens)"}[s],
+        help="Récursive : coupe au séparateur le plus naturel sous un "
+             "plafond de 1000 caractères. Sémantique : coupe là où le sens "
+             "change entre deux phrases (indexation plus lente).",
+    )
+
     # Bouton d'indexation : enchaîne les trois sous-étapes du pipeline.
     if st.button("Indexer les documents", icon=":material/bolt:",
                  type="primary", use_container_width=True,
                  disabled=not uploaded_files):
         with st.spinner("Extraction → chunking → embeddings…"):
             docs = load_documents(uploaded_files)                     # 2.1
-            chunks = split_documents(docs)                            # 2.2
+            chunks = split_documents(docs, strategy)                  # 2.2
             st.session_state.vectorstore = build_vectorstore(chunks, user)
         # Bilan de l'index : nombre de chunks obtenus pour chaque fichier.
         per_source = Counter(c.metadata["source"] for c in chunks)
@@ -106,6 +138,7 @@ with st.sidebar:
         ]
         st.session_state.raw_docs = docs
         st.session_state.chunks = chunks
+        st.session_state.chunk_strategy = strategy
         st.session_state.index_toast = (f"{len(uploaded_files)} fichier(s) → "
                                         f"{len(chunks)} chunks indexés")
         st.session_state.uploader_key += 1   # vide la zone d'ajout
@@ -123,38 +156,27 @@ with st.sidebar:
 
         # Vider l'index proprement (via le client ChromaDB, jamais en
         # supprimant chroma_db/ à la main) puis repartir de zéro.
-        if st.button("Vider l'index", icon=":material/delete:",
-                     use_container_width=True):
-            clear_index(st.session_state.vectorstore)
-            st.session_state.vectorstore = None
-            st.session_state.sources = []
-            st.session_state.raw_docs = []
-            st.session_state.chunks = []
-            st.rerun()
+        # Action irréversible : elle passe par une confirmation.
+        with st.popover("Vider l'index", icon=":material/delete:",
+                        use_container_width=True):
+            st.caption("Tous les documents indexés seront supprimés. "
+                       "Il faudra les charger à nouveau.")
+            if st.button("Confirmer la suppression", type="primary",
+                         use_container_width=True):
+                clear_index(st.session_state.vectorstore)
+                st.session_state.vectorstore = None
+                st.session_state.sources = []
+                st.session_state.raw_docs = []
+                st.session_state.chunks = []
+                st.rerun()
 
     # 🔬 Aperçus de débogage du pipeline (Étapes 2.1 et 2.2).
     if st.session_state.raw_docs:
         st.divider()
         ui.section_label("Débogage du pipeline")
         ui.extraction_preview(st.session_state.raw_docs)
-        ui.chunking_preview(st.session_state.chunks)
-
-    st.divider()
-    ui.section_label("Assistant")
-    # Le fameux toggle du sujet : bascule entre les deux modes.
-    llm_enabled = st.toggle("Générer avec le LLM", value=False)
-    st.caption("Mode **RAG complet** : réponse rédigée par mistral (Ollama, "
-               "100 % local) à partir de vos documents." if llm_enabled else
-               "Mode **Recherche sémantique** : extraits bruts de la base "
-               "vectorielle, aucun LLM.")
-
-    # Repartir d'une conversation vierge (efface aussi la sauvegarde).
-    if st.session_state.messages and st.button(
-            "Nouvelle conversation", icon=":material/add_comment:",
-            use_container_width=True):
-        chat_history.clear(user)
-        st.session_state.messages = []
-        st.rerun()
+        ui.chunking_preview(st.session_state.chunks,
+                            st.session_state.get("chunk_strategy", CHUNKING_STRATEGY))
 
     st.divider()
     ui.section_label("Compte")
@@ -172,12 +194,18 @@ if not indexed and not st.session_state.messages:
     ui.hero()
 
 # Ré-affichage de l'historique complet à chaque exécution du script.
+# Les extraits sont re-rendus en CARTES (comme au moment de la réponse) :
+# en mode audit ils sont le contenu même du message, en mode RAG ils sont
+# la justification, repliée sous la réponse.
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar=ui.AVATARS[msg["role"]]):
         st.markdown(msg["content"])
         if msg.get("chunks"):
-            with st.expander("Sources utilisées"):
-                ui.chunk_cards(msg["chunks"])
+            if msg.get("mode") == "search":
+                ui.chunk_cards(msg["chunks"], threshold=MIN_RELEVANCE)
+            else:
+                with st.expander("Sources utilisées"):
+                    ui.chunk_cards(msg["chunks"])
 
 # Saisie — désactivée tant que rien n'est indexé (pas de source, pas de
 # question, comme NotebookLM).
@@ -195,18 +223,18 @@ if query:
     with st.chat_message("assistant", avatar=ui.AVATARS["assistant"]):
         if not llm_enabled:
             # ---- Mode Recherche Sémantique (Étape 3) : AUDIT --------------
-            # Pas de seuil : on montre TOUT le top-k avec les scores, y
-            # compris ce que le mode RAG écarterait — c'est le but du mode.
+            # Pas de filtre : on montre TOUT le top-k, et le seuil sert
+            # seulement à colorer les badges — on voit ainsi d'un coup d'œil
+            # ce que le mode RAG retiendrait (vert) ou écarterait (gris).
             chunks = semantic_search(st.session_state.vectorstore, query)
-            st.markdown("**Extraits les plus proches de votre question :**")
-            ui.chunk_cards(chunks)
+            intro = (f"**Extraits les plus proches** — en vert, ceux qui "
+                     f"passeraient le seuil de pertinence ({MIN_RELEVANCE:.2f}) "
+                     f"et seraient donnés au LLM.")
+            st.markdown(intro)
+            ui.chunk_cards(chunks, threshold=MIN_RELEVANCE)
             st.session_state.messages.append({
-                "role": "assistant",
-                "content": "**Extraits les plus proches de votre question :**\n\n"
-                           + "\n\n".join(
-                               f"> {c['content']}\n> — *{c['source']}* "
-                               f"(similarité {c['score']:.2f})"
-                               for c in chunks),
+                "role": "assistant", "content": intro,
+                "chunks": chunks, "mode": "search",
             })
         else:
             # ---- Mode RAG complet (Étape 4) : réponse + sources ----------
@@ -224,7 +252,19 @@ if query:
                 st.session_state.messages.append(
                     {"role": "assistant", "content": answer})
             else:
-                answer = st.write_stream(rag_answer(query, chunks))
+                # Le LLM est un service EXTERNE au processus (Ollama sur
+                # localhost:11434) : il peut être éteint ou trop lent. On
+                # échoue proprement plutôt qu'avec une page d'erreur
+                # (cf. leçon p. 6 : timeouts, erreurs, journalisation).
+                try:
+                    answer = st.write_stream(rag_answer(query, chunks))
+                except Exception as exc:                     # noqa: BLE001
+                    answer = (f"⚠️ Le modèle local n'a pas répondu "
+                              f"(`{type(exc).__name__}`). Vérifiez qu'Ollama "
+                              f"tourne : `ollama serve`, puis `ollama run "
+                              f"{LLM_MODEL}`. Les extraits trouvés restent "
+                              f"consultables ci-dessous.")
+                    st.warning(answer)
                 with st.expander("Sources utilisées"):
                     ui.chunk_cards(chunks)
                 st.session_state.messages.append(

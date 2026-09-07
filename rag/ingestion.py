@@ -15,11 +15,15 @@ from functools import lru_cache
 from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
 # Le découpeur récursif : coupe au séparateur le plus "naturel" possible
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+# Le découpeur sémantique : coupe là où le sens change entre deux phrases
+from langchain_experimental.text_splitter import SemanticChunker
 # Embeddings locaux (sentence-transformers) et pont vers la base ChromaDB
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
-from rag.config import CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_MODEL, CHROMA_DIR
+from rag.config import (CHUNK_SIZE, CHUNK_OVERLAP, CHUNKING_STRATEGY,
+                        SEMANTIC_BREAKPOINT_PERCENTILE, SEMANTIC_MIN_CHUNK_SIZE,
+                        SEMANTIC_MAX_CHUNK_SIZE, EMBEDDING_MODEL, CHROMA_DIR)
 
 
 def load_documents(uploaded_files):
@@ -69,7 +73,7 @@ def load_documents(uploaded_files):
     return documents
 
 
-def split_documents(documents):
+def split_documents(documents, strategy=CHUNKING_STRATEGY):
     """✅ ÉTAPE 2.2 — Chunking : découper les Documents en segments.
 
     Pourquoi découper ? Deux raisons opposées à équilibrer :
@@ -80,14 +84,39 @@ def split_documents(documents):
         pour être compris, ni par la recherche ni par le LLM.
     Les valeurs retenues (et leur justification) : rag/config.py.
 
-    "Recursive" = le splitter essaie de couper au séparateur le plus naturel
-    d'abord : entre paragraphes ("\\n\\n"), sinon entre lignes ("\\n"), sinon
-    entre mots (" "), en dernier recours au milieu d'un mot. Les frontières
-    de chunks tombent donc (presque toujours) à des endroits sensés.
+    Deux stratégies (cf. CHUNKING_STRATEGIES dans rag/config.py) :
+
+    "recursive" — le splitter essaie de couper au séparateur le plus
+    naturel d'abord : entre paragraphes ("\\n\\n"), sinon entre lignes
+    ("\\n"), sinon entre mots (" "), en dernier recours au milieu d'un mot.
+    Les frontières tombent (presque toujours) à des endroits sensés, sous
+    un plafond de taille garanti.
+
+    "semantic" — chaque phrase est vectorisée ; on mesure la similarité
+    entre phrases consécutives et on coupe là où elle chute (changement de
+    sujet). Les chunks épousent les idées, pas la mise en page — mais
+    l'indexation est plus lente et les tailles varient : un garde-fou
+    re-découpe ce qui dépasserait SEMANTIC_MAX_CHUNK_SIZE.
 
     Les métadonnées (source, page) sont propagées automatiquement à chaque
     chunk par split_documents — indispensable pour citer les sources.
     """
+    # Pages vides (PDF scanné, page blanche) : rien à découper.
+    documents = [d for d in documents if d.page_content.strip()]
+
+    if strategy == "semantic":
+        semantic = SemanticChunker(
+            get_embeddings(),                 # le MÊME modèle que l'index
+            breakpoint_threshold_type="percentile",
+            breakpoint_threshold_amount=SEMANTIC_BREAKPOINT_PERCENTILE,
+            min_chunk_size=SEMANTIC_MIN_CHUNK_SIZE,
+        )
+        chunks = semantic.split_documents(documents)
+        # Garde-fou de taille : ne touche qu'aux chunks trop longs.
+        cap = RecursiveCharacterTextSplitter(
+            chunk_size=SEMANTIC_MAX_CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+        return cap.split_documents(chunks)
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,        # taille MAXIMALE d'un chunk (caractères)
         chunk_overlap=CHUNK_OVERLAP,  # chevauchement entre chunks consécutifs

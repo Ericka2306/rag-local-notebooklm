@@ -14,6 +14,12 @@ quitte votre machine** — aucun appel à une API externe.
     proches de la question (aucun LLM), idéal pour auditer la base vectorielle
   - 🤖 **RAG complet** — un LLM local rédige une réponse contrainte par les
     documents, avec les sources consultables sous chaque réponse
+- **Deux stratégies de chunking** au choix : récursive (plafond de taille,
+  coupe au séparateur naturel) ou sémantique (coupe là où le sens change
+  entre phrases), comparables dans l'aperçu de débogage
+- **Choix justifiés par la mesure** : `benchmark.py` évalue les
+  configurations sur des questions à réponse connue (top-1, score, et
+  surtout **marge** entre la bonne réponse et le bruit)
 - **Confidentialité totale** : embeddings et génération s'exécutent en local
 - **Multi-utilisateur** (extension au-delà du sujet) : connexion par compte
   (mots de passe bcrypt, cookie de session), index vectoriel et historique
@@ -73,6 +79,7 @@ latérale, cliquez sur **Indexer** et posez vos questions.
 ├── auth.py            # Authentification (streamlit-authenticator)
 ├── users.yaml         # Comptes (mots de passe hachés bcrypt)
 ├── chat_history.py    # Persistance de l'historique, par utilisateur
+├── benchmark.py       # Banc d'essai du retrieval (top-1 / score / marge)
 ├── requirements.txt
 └── rag/               # Backend, indépendant de Streamlit
     ├── config.py      # Constantes : modèles, chunking, top-k

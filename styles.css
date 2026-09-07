@@ -102,10 +102,14 @@ header[data-testid="stHeader"] { background: transparent; }
     color: #1A73E8; font-weight: 600; font-size: 0.78rem; margin-bottom: 4px;
 }
 .chunk-card .sim-badge {
-    float: right; background: #E8F0FE; color: #1A73E8;
+    float: right; background: #E6F4EA; color: #188038;
     border-radius: 999px; padding: 2px 9px; font-size: 0.72rem;
     font-weight: 600; margin-left: 8px;
 }
+.chunk-card .sim-badge .msr { font-size: 13px; vertical-align: -2px; }
+/* Extrait sous le seuil de pertinence : écarté du contexte du LLM */
+.chunk-card .sim-badge-low { background: #F1F3F4; color: #5F6368; }
+.chunk-card:has(.sim-badge-low) { border-left-color: #DADCE0; opacity: 0.75; }
 
 /* ---------- Écran d'accueil ---------- */
 .hero { text-align: center; padding: 2.2rem 1rem 0.5rem 1rem; }

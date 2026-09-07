@@ -61,8 +61,13 @@ def stats_row(n_sources, n_chunks):
     )
 
 
-def chunk_cards(chunks):
+def chunk_cards(chunks, threshold=None):
     """Cartes des extraits retournés par la recherche (source + contenu).
+
+    threshold : si fourni (mode audit), le badge de similarité indique
+    visuellement si l'extrait passerait le seuil de pertinence du mode RAG
+    — vert = retenu, gris = écarté. C'est tout l'intérêt du mode audit :
+    voir ce que le LLM recevrait vraiment.
 
     HTML volontairement compact (une seule ligne, sauts de ligne convertis
     en <br>) : st.markdown interprète le Markdown, et une ligne indentée
@@ -72,8 +77,15 @@ def chunk_cards(chunks):
     for chunk in chunks:
         content = html.escape(chunk["content"]).replace("\n", "<br>")
         score = chunk.get("score")
-        badge = (f'<span class="sim-badge">similarité {score:.2f}</span>'
-                 if score is not None else "")
+        if score is None:
+            badge = ""
+        else:
+            kept = threshold is None or score >= threshold
+            css = "sim-badge" if kept else "sim-badge sim-badge-low"
+            mark = "" if threshold is None else (
+                ' <span class="msr">check</span>' if kept
+                else ' <span class="msr">block</span>')
+            badge = f'<span class="{css}">{score:.2f}{mark}</span>'
         st.markdown(
             f'<div class="chunk-card">{badge}'
             f'<span class="chunk-source"><span class="msr">draft</span> '
@@ -138,12 +150,13 @@ def extraction_preview(docs):
             st.caption(f"… et {len(docs) - 3} autre(s) segment(s)")
 
 
-def chunking_preview(chunks):
+def chunking_preview(chunks, strategy):
     """🔬 Débogage Étape 2.2 : distribution des tailles et premiers chunks."""
     with st.expander("Aperçu du chunking"):
         sizes = [len(c.page_content) for c in chunks]
-        st.caption(f"{len(chunks)} chunks — taille min {min(sizes)} / "
-                   f"moy {sum(sizes)//len(sizes)} / max {max(sizes)} car.")
+        st.caption(f"Stratégie **{strategy}** — {len(chunks)} chunks — "
+                   f"taille min {min(sizes)} / moy {sum(sizes)//len(sizes)} "
+                   f"/ max {max(sizes)} car.")
         for c in chunks[:2]:
             page = c.metadata.get("page")
             page_info = f" · page {page + 1}" if page is not None else ""
