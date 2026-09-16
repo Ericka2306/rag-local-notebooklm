@@ -349,8 +349,10 @@ if "initialized" not in st.session_state:
 
 # Message de confirmation différé : l'indexation se termine par st.rerun(),
 # qui effacerait un toast affiché juste avant. On l'affiche donc ici.
+# Pas d'icône Material : dans un toast, la police globale l'afficherait sous
+# forme de texte ("check_circle") au lieu du pictogramme.
 if toast_message := st.session_state.pop("index_toast", None):
-    st.toast(toast_message, icon=":material/check_circle:")
+    st.toast(toast_message)
 
 indexed = bool(st.session_state.sources)
 
@@ -368,12 +370,11 @@ with st.sidebar:
         st.caption("Mode **Recherche sémantique** : extraits bruts de la base "
                    "vectorielle, aucun LLM.")
 
-    if st.session_state.messages and st.button(
-            "Nouvelle conversation", icon=":material/add_comment:",
-            use_container_width=True):
-        st.session_state.messages = []
-        HISTORY_FILE.unlink(missing_ok=True)
-        st.rerun()
+    # Emplacement réservé au bouton « Nouvelle conversation ». La barre
+    # latérale est dessinée AVANT le traitement de la question : le bouton
+    # est donc ajouté en fin de script, pour apparaître dès le premier
+    # échange et non à l'interaction suivante.
+    new_conversation_slot = st.empty()
 
     # --- Téléchargement des documents ---------------------------------------
     st.divider()
@@ -537,3 +538,12 @@ if query:
                     {"role": "assistant", "content": answer, "chunks": chunks})
 
     save_history(st.session_state.messages)
+
+# Bouton « Nouvelle conversation », placé dans son emplacement de la barre
+# latérale maintenant que l'historique est à jour.
+if st.session_state.messages and new_conversation_slot.button(
+        "Nouvelle conversation", icon=":material/add_comment:",
+        use_container_width=True):
+    st.session_state.messages = []
+    HISTORY_FILE.unlink(missing_ok=True)
+    st.rerun()
