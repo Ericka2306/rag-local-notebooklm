@@ -1,4 +1,4 @@
-# TP RAG Local — dépendances (cf. Étape 1 du sujet)
+# TP RAG Local — dépendances
 langchain
 langchain-community
 langchain-huggingface
@@ -12,5 +12,3 @@ sentence-transformers
 torchvision
 streamlit
 pymupdf
-# Extension multi-utilisateur : login avec mots de passe bcrypt + cookie
-streamlit-authenticator

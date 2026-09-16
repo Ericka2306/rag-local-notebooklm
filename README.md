@@ -21,12 +21,13 @@ quitte votre machine** — aucun appel à une API externe.
   configurations sur des questions à réponse connue (top-1, score, et
   surtout **marge** entre la bonne réponse et le bruit)
 - **Confidentialité totale** : embeddings et génération s'exécutent en local
-- **Multi-utilisateur** (extension au-delà du sujet) : connexion par compte
-  (mots de passe bcrypt, cookie de session), index vectoriel et historique
-  de conversation **cloisonnés par utilisateur** et persistés sur disque
+- **Index et historique persistants** : les documents indexés et la
+  conversation survivent aux redémarrages
 - Design inspiré de NotebookLM (Material Symbols, palette Google)
 
-Comptes de démonstration : `ericka / M1-rag-2026` et `demo / demo1234`.
+Une version **multi-utilisateur** (connexion par compte, mots de passe bcrypt,
+données cloisonnées par utilisateur) est disponible sur la branche
+`extension-multi-utilisateur`.
 
 ## 🏗️ Architecture
 
@@ -73,20 +74,16 @@ latérale, cliquez sur **Indexer** et posez vos questions.
 ## 📁 Structure du projet
 
 ```
-├── app.py             # Script de page Streamlit (Étape 1) — point d'entrée
-├── ui.py              # Composants d'affichage réutilisables
-├── styles.css         # Feuille de style (Material Symbols, palette Google)
-├── auth.py            # Authentification (streamlit-authenticator)
-├── users.yaml         # Comptes (mots de passe hachés bcrypt)
-├── chat_history.py    # Persistance de l'historique, par utilisateur
-├── benchmark.py       # Banc d'essai du retrieval (top-1 / score / marge)
-├── requirements.txt
-└── rag/               # Backend, indépendant de Streamlit
-    ├── config.py      # Constantes : modèles, chunking, top-k
-    ├── ingestion.py   # Étape 2 : extraction → chunking → vectorisation
-    ├── retrieval.py   # Étape 3 : recherche sémantique
-    └── generation.py  # Étape 4 : prompt strict + génération LLM
+├── app.py              # Étape 1 : interface Streamlit (point d'entrée)
+├── embedding.py        # Étape 2 : extraction → chunking → vectorisation
+├── fonction_rag.py     # Étapes 3 et 4 : recherche sémantique + génération
+├── benchmark.py        # Banc d'essai du retrieval (top-1 / score / marge)
+├── preparer_rendu.py   # Vérifie et construit l'archive de rendu
+└── requirements.txt
 ```
+
+Le découpage en trois fichiers suit les consignes de rendu du TP : un
+fichier par groupe d'étapes.
 
 ## 🚧 Statut
 

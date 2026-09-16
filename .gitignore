@@ -6,8 +6,12 @@ __pycache__/
 # Base vectorielle locale (générée à l'exécution)
 chroma_db/
 
-# Historiques de conversation (données locales, un fichier par utilisateur)
+# Historique de conversation (données locales)
 chat_history*.json
+
+# Dossier de rendu : contient le numéro étudiant et les captures, à ne pas
+# publier sur un dépôt public
+rendu/
 
 # Supports de cours (non redistribuables)
 *.pdf

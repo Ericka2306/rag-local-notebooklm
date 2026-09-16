@@ -26,8 +26,7 @@ warnings.filterwarnings("ignore")
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from rag.config import EMBEDDING_MODEL
-from rag.ingestion import load_documents, split_documents
+from embedding import EMBEDDING_MODEL, load_documents, split_documents
 
 DOCS_FOLDER = "documents_test"
 
